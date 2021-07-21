@@ -57,9 +57,9 @@ func (api *PinAPI) Ls(ctx context.Context, opts ...caopts.PinLsOption) (<-chan c
 }
 
 func (api *PinAPI) IsPinned(ctx context.Context, p path.Path, opts ...caopts.PinIsPinnedOption) (string, bool, error) {
-	dagNode, err := api.core().ResolveNode(ctx, p)
+	resolved, err := api.core().ResolvePath(ctx, p)
 	if err != nil {
-		return "", false, fmt.Errorf("pin: %s", err)
+		return "", false, fmt.Errorf("error resolving path: %s", err)
 	}
 
 	settings, err := caopts.PinIsPinnedOptions(opts...)
@@ -72,7 +72,7 @@ func (api *PinAPI) IsPinned(ctx context.Context, p path.Path, opts ...caopts.Pin
 		return "", false, fmt.Errorf("invalid type '%s', must be one of {direct, indirect, recursive, all}", settings.WithType)
 	}
 
-	return api.pinning.IsPinnedWithType(ctx, dagNode.Cid(), mode)
+	return api.pinning.IsPinnedWithType(ctx, resolved.Cid(), mode)
 }
 
 // Rm pin rm api
@@ -219,8 +219,11 @@ func (p *pinInfo) Err() error {
 }
 
 // pinLsAll is an internal function for returning a list of pins
+//
+// The caller must keep reading results until the channel is closed to prevent
+// leaking the goroutine that is fetching pins.
 func (api *PinAPI) pinLsAll(ctx context.Context, typeStr string) <-chan coreiface.Pin {
-	out := make(chan coreiface.Pin)
+	out := make(chan coreiface.Pin, 1)
 
 	keys := cid.NewSet()
 
@@ -249,37 +252,34 @@ func (api *PinAPI) pinLsAll(ctx context.Context, typeStr string) <-chan coreifac
 	go func() {
 		defer close(out)
 
+		var dkeys, rkeys []cid.Cid
+		var err error
 		if typeStr == "recursive" || typeStr == "all" {
-			rkeys, err := api.pinning.RecursiveKeys(ctx)
+			rkeys, err = api.pinning.RecursiveKeys(ctx)
 			if err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}
-			if err := AddToResultKeys(rkeys, "recursive"); err != nil {
+			if err = AddToResultKeys(rkeys, "recursive"); err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}
 		}
 		if typeStr == "direct" || typeStr == "all" {
-			dkeys, err := api.pinning.DirectKeys(ctx)
+			dkeys, err = api.pinning.DirectKeys(ctx)
 			if err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}
-			if err := AddToResultKeys(dkeys, "direct"); err != nil {
+			if err = AddToResultKeys(dkeys, "direct"); err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}
 		}
 		if typeStr == "all" {
 			set := cid.NewSet()
-			rkeys, err := api.pinning.RecursiveKeys(ctx)
-			if err != nil {
-				out <- &pinInfo{err: err}
-				return
-			}
 			for _, k := range rkeys {
-				err := merkledag.Walk(
+				err = merkledag.Walk(
 					ctx, merkledag.GetLinksWithDAG(api.dag), k,
 					set.Visit,
 					merkledag.SkipRoot(), merkledag.Concurrent(),
@@ -289,7 +289,7 @@ func (api *PinAPI) pinLsAll(ctx context.Context, typeStr string) <-chan coreifac
 					return
 				}
 			}
-			if err := AddToResultKeys(set.Keys(), "indirect"); err != nil {
+			if err = AddToResultKeys(set.Keys(), "indirect"); err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}
@@ -298,14 +298,14 @@ func (api *PinAPI) pinLsAll(ctx context.Context, typeStr string) <-chan coreifac
 			// We need to first visit the direct pins that have priority
 			// without emitting them
 
-			dkeys, err := api.pinning.DirectKeys(ctx)
+			dkeys, err = api.pinning.DirectKeys(ctx)
 			if err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}
 			VisitKeys(dkeys)
 
-			rkeys, err := api.pinning.RecursiveKeys(ctx)
+			rkeys, err = api.pinning.RecursiveKeys(ctx)
 			if err != nil {
 				out <- &pinInfo{err: err}
 				return
@@ -314,7 +314,7 @@ func (api *PinAPI) pinLsAll(ctx context.Context, typeStr string) <-chan coreifac
 
 			set := cid.NewSet()
 			for _, k := range rkeys {
-				err := merkledag.Walk(
+				err = merkledag.Walk(
 					ctx, merkledag.GetLinksWithDAG(api.dag), k,
 					set.Visit,
 					merkledag.SkipRoot(), merkledag.Concurrent(),
@@ -324,7 +324,7 @@ func (api *PinAPI) pinLsAll(ctx context.Context, typeStr string) <-chan coreifac
 					return
 				}
 			}
-			if err := AddToResultKeys(set.Keys(), "indirect"); err != nil {
+			if err = AddToResultKeys(set.Keys(), "indirect"); err != nil {
 				out <- &pinInfo{err: err}
 				return
 			}

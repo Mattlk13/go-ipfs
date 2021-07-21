@@ -9,6 +9,7 @@ import (
 	blockstore "github.com/ipfs/go-ipfs-blockstore"
 	config "github.com/ipfs/go-ipfs-config"
 	util "github.com/ipfs/go-ipfs-util"
+	log "github.com/ipfs/go-log"
 	peer "github.com/libp2p/go-libp2p-core/peer"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
 
@@ -22,13 +23,14 @@ import (
 	"go.uber.org/fx"
 )
 
+var logger = log.Logger("core:constructor")
+
 var BaseLibP2P = fx.Options(
 	fx.Provide(libp2p.UserAgent),
 	fx.Provide(libp2p.PNet),
 	fx.Provide(libp2p.ConnectionManager),
-	fx.Provide(libp2p.Transports),
-
 	fx.Provide(libp2p.Host),
+	fx.Provide(libp2p.MultiaddrResolver),
 
 	fx.Provide(libp2p.DiscoveryHandler),
 
@@ -108,22 +110,36 @@ func LibP2P(bcfg *BuildCfg, cfg *config.Config) fx.Option {
 		autonat = fx.Provide(libp2p.AutoNATService(cfg.AutoNAT.Throttle))
 	}
 
-	// Gather all the options
+	// If `cfg.Swarm.DisableRelay` is set and `Network.Relay` isn't, use the former.
+	enableRelay := cfg.Swarm.Transports.Network.Relay.WithDefault(!cfg.Swarm.DisableRelay) //nolint
 
+	// Warn about a deprecated option.
+	//nolint
+	if cfg.Swarm.DisableRelay {
+		logger.Error("The `Swarm.DisableRelay' config field is deprecated.")
+		if enableRelay {
+			logger.Error("`Swarm.DisableRelay' has been overridden by `Swarm.Transports.Network.Relay'")
+		} else {
+			logger.Error("Use the `Swarm.Transports.Network.Relay' config field instead")
+		}
+	}
+
+	// Gather all the options
 	opts := fx.Options(
 		BaseLibP2P,
 
 		fx.Provide(libp2p.AddrFilters(cfg.Swarm.AddrFilters)),
 		fx.Provide(libp2p.AddrsFactory(cfg.Addresses.Announce, cfg.Addresses.NoAnnounce)),
-		fx.Provide(libp2p.SmuxTransport(bcfg.getOpt("mplex"))),
-		fx.Provide(libp2p.Relay(cfg.Swarm.DisableRelay, cfg.Swarm.EnableRelayHop)),
+		fx.Provide(libp2p.SmuxTransport(cfg.Swarm.Transports)),
+		fx.Provide(libp2p.Relay(enableRelay, cfg.Swarm.EnableRelayHop)),
+		fx.Provide(libp2p.Transports(cfg.Swarm.Transports)),
 		fx.Invoke(libp2p.StartListening(cfg.Addresses.Swarm)),
 		fx.Invoke(libp2p.SetupDiscovery(cfg.Discovery.MDNS.Enabled, cfg.Discovery.MDNS.Interval)),
 
-		fx.Provide(libp2p.Security(!bcfg.DisableEncryptedConnections, cfg.Experimental.OverrideSecurityTransports)),
+		fx.Provide(libp2p.Security(!bcfg.DisableEncryptedConnections, cfg.Swarm.Transports)),
 
 		fx.Provide(libp2p.Routing),
-		fx.Provide(libp2p.BaseRouting),
+		fx.Provide(libp2p.BaseRouting(cfg.Experimental.AcceleratedDHTClient)),
 		maybeProvide(libp2p.PubsubRouter, bcfg.getOpt("ipnsps")),
 
 		maybeProvide(libp2p.BandwidthCounter, !cfg.Swarm.DisableBandwidthMetrics),
@@ -249,6 +265,7 @@ func Online(bcfg *BuildCfg, cfg *config.Config) fx.Option {
 	return fx.Options(
 		fx.Provide(OnlineExchange(shouldBitswapProvide)),
 		maybeProvide(Graphsync, cfg.Experimental.GraphsyncEnabled),
+		fx.Provide(DNSResolver),
 		fx.Provide(Namesys(ipnsCacheSize)),
 		fx.Provide(Peering),
 		PeerWith(cfg.Peering.Peers...),
@@ -258,7 +275,7 @@ func Online(bcfg *BuildCfg, cfg *config.Config) fx.Option {
 		fx.Provide(p2p.New),
 
 		LibP2P(bcfg, cfg),
-		OnlineProviders(cfg.Experimental.StrategicProviding, cfg.Reprovider.Strategy, cfg.Reprovider.Interval),
+		OnlineProviders(cfg.Experimental.StrategicProviding, cfg.Experimental.AcceleratedDHTClient, cfg.Reprovider.Strategy, cfg.Reprovider.Interval),
 	)
 }
 
@@ -266,9 +283,10 @@ func Online(bcfg *BuildCfg, cfg *config.Config) fx.Option {
 func Offline(cfg *config.Config) fx.Option {
 	return fx.Options(
 		fx.Provide(offline.Exchange),
+		fx.Provide(DNSResolver),
 		fx.Provide(Namesys(0)),
 		fx.Provide(offroute.NewOfflineRouter),
-		OfflineProviders(cfg.Experimental.StrategicProviding, cfg.Reprovider.Strategy, cfg.Reprovider.Interval),
+		OfflineProviders(cfg.Experimental.StrategicProviding, cfg.Experimental.AcceleratedDHTClient, cfg.Reprovider.Strategy, cfg.Reprovider.Interval),
 	)
 }
 

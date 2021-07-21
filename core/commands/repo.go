@@ -217,6 +217,7 @@ var repoFsckCmd = &cmds.Command{
 'ipfs repo fsck' is now a no-op.
 `,
 	},
+	NoRemote: true,
 	Run: func(req *cmds.Request, res cmds.ResponseEmitter, env cmds.Environment) error {
 		return cmds.EmitOnce(res, &MessageOutput{"`ipfs repo fsck` is deprecated and does nothing.\n"})
 	},
@@ -310,6 +311,10 @@ var repoVerifyCmd = &cmds.Command{
 			if err := res.Emit(&VerifyProgress{Progress: i}); err != nil {
 				return err
 			}
+		}
+
+		if err := req.Context.Err(); err != nil {
+			return err
 		}
 
 		if fails != 0 {

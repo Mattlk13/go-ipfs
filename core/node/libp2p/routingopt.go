@@ -2,7 +2,6 @@ package libp2p
 
 import (
 	"context"
-
 	"github.com/ipfs/go-datastore"
 	host "github.com/libp2p/go-libp2p-core/host"
 	"github.com/libp2p/go-libp2p-core/peer"
@@ -37,11 +36,12 @@ func constructDHTRouting(mode dht.ModeOpt) func(
 	) (routing.Routing, error) {
 		return dual.New(
 			ctx, host,
-			dht.Concurrency(10),
-			dht.Mode(mode),
-			dht.Datastore(dstore),
-			dht.Validator(validator),
-			dht.BootstrapPeers(bootstrapPeers...),
+			dual.DHTOption(
+				dht.Concurrency(10),
+				dht.Mode(mode),
+				dht.Datastore(dstore),
+				dht.Validator(validator)),
+			dual.WanDHTOption(dht.BootstrapPeers(bootstrapPeers...)),
 		)
 	}
 }
