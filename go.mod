@@ -60,7 +60,7 @@ require (
 	github.com/ipfs/tar-utils v0.0.1
 	github.com/ipld/go-car v0.3.1
 	github.com/ipld/go-codec-dagpb v1.3.0
-	github.com/ipld/go-ipld-prime v0.12.2
+	github.com/ipld/go-ipld-prime v0.14.4
 	github.com/jbenet/go-random v0.0.0-20190219211222-123a90aedc0c
 	github.com/jbenet/go-temp-err-catcher v0.1.0
 	github.com/jbenet/goprocess v0.1.4
@@ -95,7 +95,7 @@ require (
 	github.com/multiformats/go-multiaddr-dns v0.3.1
 	github.com/multiformats/go-multibase v0.0.3
 	github.com/multiformats/go-multicodec v0.3.0
-	github.com/multiformats/go-multihash v0.0.15
+	github.com/multiformats/go-multihash v0.1.0
 	github.com/opentracing/opentracing-go v1.2.0
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.11.0
